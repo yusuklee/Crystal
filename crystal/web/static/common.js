@@ -4,19 +4,11 @@ const C = {
   },
   pct(p, d = 1) { return p == null ? "–" : (p * 100).toFixed(d) + "%"; },
   cls(label) { return label === 1 ? "fake" : "true"; },
-  name(label) { return label === 1 ? "Fake" : "True"; },
-  LEVELS: ["True", "Likely True", "Uncertain", "Likely Fake", "Fake"],
-  levelIdx(pf) { return pf == null ? null : Math.min(4, Math.floor(pf * 5)); },
-  level(pf) { const i = C.levelIdx(pf); return i == null ? null : C.LEVELS[i]; },
-  levelCls(i) { return i == null ? "" : i <= 1 ? "true" : i === 2 ? "neutral" : "fake"; },
-  chip(label, pf) {
-    const i = C.levelIdx(pf);
-    if (i == null) return `<span class="chip ${C.cls(label)}">${C.name(label)}</span>`;
-    return `<span class="chip ${C.levelCls(i)}${i === 1 || i === 3 ? " light" : ""}">${C.LEVELS[i]}</span>`;
-  },
+  name(label) { return label === 1 ? "FAKE" : "TRUE"; },
+  chip(label) { return `<span class="chip ${C.cls(label)}">${C.name(label)}</span>`; },
   q() { return new URLSearchParams(location.search); },
   async get(url) {
-    const r = await fetch(url);
+    const r = await fetch(url, { cache: "no-store" });
     if (!r.ok) throw new Error(`${url} -> ${r.status}`);
     return r.json();
   },
@@ -30,7 +22,32 @@ const C = {
     return `<header class="header"><div class="header-in">
       <a class="logo" href="/"><svg viewBox="0 0 24 24" fill="none"><path d="M12 2 2 9l10 13 10-13-10-7z" fill="#1b8a78"/><path d="M2 9h20L12 22 2 9z" fill="#0f5e52"/><path d="M7 2 2 9h20l-5-7H7z" fill="#5fb8a6"/></svg>CRYSTAL</a>
       <form class="search" action="/" method="get"><input name="q" placeholder="Search by keyword" value="${C.esc(q)}" autocomplete="off"><button type="submit" aria-label="search"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg></button></form>
-      <button class="logout" type="button">log out</button></div></header>`;
+      <button class="logout" type="button">log out</button>
+      <button class="switch-user" type="button">switch user</button></div></header>`;
+  },
+  bindUserMenu() {
+    const btn = document.querySelector(".switch-user");
+    if (!btn) return;
+    btn.addEventListener("click", () => C.openUserMenu());
+  },
+  async openUserMenu() {
+    document.querySelector(".um-back")?.remove();
+    const d = await C.get("/api/demo-users");
+    const cur = C.q().get("user_id") || d.default_user;
+    const back = document.createElement("div");
+    back.className = "um-back";
+    const rows = d.users.map(u => `<div class="um-row ${u.user_id === cur ? "on" : ""}">
+        <button class="um-pick" data-id="${C.esc(u.user_id)}"><span class="um-name">${C.esc(u.name)}</span></button>
+        <button class="um-reset" data-id="${C.esc(u.user_id)}">reset</button></div>`).join("");
+    back.innerHTML = `<div class="um"><div class="um-top"><h3>Select user</h3><button class="um-x" aria-label="close">×</button></div>${rows}</div>`;
+    document.body.appendChild(back);
+    back.addEventListener("click", e => { if (e.target === back) back.remove(); });
+    back.querySelector(".um-x").onclick = () => back.remove();
+    back.querySelectorAll(".um-pick").forEach(b => b.onclick = () => { location.href = `/?user_id=${encodeURIComponent(b.dataset.id)}`; });
+    back.querySelectorAll(".um-reset").forEach(b => b.onclick = async () => {
+      await C.post("/api/reset-user", { user_id: b.dataset.id });
+      if (b.dataset.id === cur) location.reload(); else C.openUserMenu();
+    });
   },
   bar(d, big = false) {
     const t = d.true || 0, f = d.fake || 0;

@@ -13,6 +13,11 @@ CACHE_DIR = os.path.join(HERE, "_cache")
 PLACEHOLDER = "Analyzing context..."
 REAL_SEED_USER = "25376730"  # 2026-10-21 CROWN 피드 기준 재선정 (_workspace/11_seed.json 1순위)
 _UID = re.compile(rb'"user_id":\s*"([^"]+)"')
+# 2026-10-30 데모 유저 (전체 히스토리 30건 이상, 최근 7일 3건 이상 중 가짜 비율 75% / 진짜 비율 75%)
+DEMO_USERS = [
+    {"user_id": "620481545", "name": "Fake news reader"},  # 65건 중 가짜 75%
+    {"user_id": "2361665978", "name": "True news reader"},  # 80건 중 진짜 75%
+]
 
 try:
     from crystal.common import is_displayable
@@ -92,6 +97,12 @@ class Store:
                     r = json.loads(line)
                     self.cache[(r["article_id"], r["kind"], r["key"])] = r["text"]
         self.clicks = {}
+        self.clicks_path = os.path.join(data_dir, "clicks.jsonl")
+        if os.path.exists(self.clicks_path):
+            with open(self.clicks_path, encoding="utf-8") as f:
+                for line in f:
+                    r = json.loads(line)
+                    self.clicks.setdefault(r["user_id"], []).append({"article_id": r["article_id"], "time": r["time"]})
 
     @staticmethod
     def _read(path, off):
@@ -101,7 +112,7 @@ class Store:
 
     def default_user(self):
         env = os.environ.get("CRYSTAL_SEED_USER")
-        for uid in (env, REAL_SEED_USER):
+        for uid in (env, DEMO_USERS[0]["user_id"], REAL_SEED_USER):
             if uid and uid in self.feed_off:
                 return uid
         return next(iter(self.feed_off), None)
@@ -112,12 +123,38 @@ class Store:
         return self._read(self.users_path, self.user_off[uid])["history"] + self.clicks.get(uid, [])
 
     def feed(self, uid):
+        """미리 계산한 추천 목록에서 데모 중 읽은 기사를 뺀다 (추천기의 '이미 본 기사 제외' 규칙과 같음)."""
         if uid not in self.feed_off:
             return None
-        return self._read(self.feeds_path, self.feed_off[uid])["feed"]
+        read = {c["article_id"] for c in self.clicks.get(uid, [])}
+        return [i for i in self._read(self.feeds_path, self.feed_off[uid])["feed"] if i not in read]
 
     def log_click(self, uid, aid):
-        self.clicks.setdefault(uid, []).append({"article_id": aid, "time": int(time.time())})
+        """열람을 유저 히스토리 끝에 이어 붙인다. 시각은 데이터 속 마지막 상호작용 + 60초씩 (실제 현재 시각을 쓰면 7일 창이 데모 클릭만 남음)."""
+        if aid not in self.articles:
+            return
+        hist = self.history(uid) or []
+        t = (hist[-1]["time"] if hist else int(time.time())) + 60
+        self.clicks.setdefault(uid, []).append({"article_id": aid, "time": t})
+        with open(self.clicks_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"user_id": uid, "article_id": aid, "time": t}, ensure_ascii=False) + "\n")
+
+    def reset_user(self, uid):
+        """데모 중 쌓인 열람 기록을 지워 처음 상태로 되돌린다."""
+        self.clicks.pop(uid, None)
+        with open(self.clicks_path, "w", encoding="utf-8") as f:
+            for u, rows in self.clicks.items():
+                for r in rows:
+                    f.write(json.dumps({"user_id": u, **r}, ensure_ascii=False) + "\n")
+
+    def demo_users(self):
+        out = []
+        for d in DEMO_USERS:
+            if d["user_id"] not in self.user_off:
+                continue
+            hist = self.history(d["user_id"]) or []
+            out.append({**d, "overall": history_dist(hist, self.articles, None), "n_read": len(self.clicks.get(d["user_id"], []))})
+        return out
 
     def stats(self, uid, page_ids):
         hist = self.history(uid) or []

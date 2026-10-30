@@ -1,5 +1,6 @@
 (async function () {
   document.getElementById("hdr").innerHTML = C.header();
+  C.bindUserMenu();
   const aid = decodeURIComponent(location.pathname.split("/").pop());
   const uid = C.q().get("user_id") || "";
   const wrap = document.getElementById("wrap");
@@ -13,21 +14,19 @@
 
   function renderMain(compact) {
     const meta = compact
-      ? `${C.chip(label, art.pred_prob_fake)}<span class="prob">${C.pct(art.prob)}</span>`
-      : `${C.chip(label, art.pred_prob_fake)}<span>Predicted veracity · click a highlighted phrase to see why it signals the verdict</span>`;
-    main.innerHTML = `<h1 class="${art.title.length > 90 ? "long" : ""}">${C.highlight(art.title, art.keywords, "title", label)}</h1><div class="meta">${meta}</div>${C.highlight(art.body, art.keywords, "body", label)}`;
+      ? `${C.chip(label)}<span class="prob">${C.pct(art.prob)}</span>`
+      : `${C.chip(label)}<span>Predicted veracity · click a highlighted phrase to see why it signals the verdict</span>`;
+    main.innerHTML = `<h1 class="${art.title.length > 90 ? "long" : ""}">${C.esc(art.title)}</h1><div class="meta">${meta}</div>${C.highlight(art.body, art.keywords, "body", label)}`;
     C.bindKeywords(main, art, label);
   }
 
   function renderSide() {
-    const i = C.levelIdx(art.pred_prob_fake);
     const conf = art.pred_prob_fake == null ? null : 1 - art.pred_prob_fake;
-    const bar = `<div class="vbar lv${i == null ? (label === 1 ? 4 : 0) : i}"><span>${C.level(art.pred_prob_fake) || C.name(label)}</span>${conf == null ? "" : `<span class="pc">${C.pct(conf, 2)}</span>`}</div>`;
-    const bins = C.LEVELS.map(() => []);
-    for (const c of art.counterparts) { const j = C.levelIdx(c.pred_prob_fake); if (j != null && !bins[j].length) bins[j].push(c); }
-    const cps = [4, 3, 2, 1, 0].map(j => { const items = bins[j]; return `<div class="bin l${j}">${items.length
-      ? items.map(c => `<div class="cp" data-id="${C.esc(c.article_id)}"><div class="t">${C.esc(c.title)}</div></div>`).join("")
-      : `<div class="none">no articles available</div>`}</div>`; }).join("");
+    const bar = `<div class="vbar ${label === 1 ? "lv4" : "lv0"}"><span>${C.name(label)}</span>${conf == null ? "" : `<span class="pc">${C.pct(conf, 2)}</span>`}</div>`;
+    const opp = art.counterparts.filter(c => c.final_label !== label).slice(0, 2);
+    const cps = opp.length
+      ? opp.map(c => `<div class="bin ${c.final_label === 1 ? "l4" : "l0"}"><div class="cp" data-id="${C.esc(c.article_id)}"><div class="t">${C.esc(c.title)}</div><div class="m">${C.chip(c.final_label)}</div></div></div>`).join("")
+      : `<div class="bin l2"><div class="none">no articles available</div></div>`;
     side.innerHTML = `<div class="card"><h3>Predicted Veracity</h3>${bar}
         <button class="why-toggle">Why this verdict? <span class="car">▾</span></button><p class="why-text" hidden></p></div>
       <div class="card"><h3>Explore Related Articles</h3>${cps}</div>`;
@@ -55,16 +54,16 @@
     const cmp = await C.get(`/api/compare?a=${encodeURIComponent(aid)}&b=${encodeURIComponent(bid)}`);
     const b = cmp.b, bl = b.final_label, cc = cmp.claim_contrast || {};
     const pend = cmp.contrast_status === "pending" ? "pending" : "";
-    document.title = `CRYSTAL · ${settings.goals.event}`;
+    document.title = "CRYSTAL";
     document.getElementById("goal").textContent = settings.goals.event;
     wrap.classList.add("split");
     side.hidden = true;
     panel.hidden = false;
     panel.innerHTML = `<div class="panel-top"><a href="/article/${encodeURIComponent(bid)}${userQ}">View Full Page ↗</a><button class="x" aria-label="close">×</button></div>
       <div class="contrast"><div class="why"><span class="star">✦</span>Claim contrast on this event</div>
-        <div class="row"><span class="k">${C.chip(label, art.pred_prob_fake)}</span><span class="v ${pend}">${C.esc(cc.this || "")}</span></div>
-        <div class="row"><span class="k">${C.chip(bl, b.pred_prob_fake)}</span><span class="v ${pend}">${C.esc(cc.related || "")}</span></div></div>
-      <div class="article"><h1 class="${b.title.length > 90 ? "long" : ""}">${C.highlight(b.title, b.keywords, "title", bl)}</h1><div class="meta">${C.chip(bl, b.pred_prob_fake)}<span class="prob">${C.pct(b.prob)}</span></div>${C.highlight(b.body, b.keywords, "body", bl)}</div>`;
+        <div class="row"><span class="k">${C.chip(label)}</span><span class="v ${pend}">${C.esc(cc.this || "")}</span></div>
+        <div class="row"><span class="k">${C.chip(bl)}</span><span class="v ${pend}">${C.esc(cc.related || "")}</span></div></div>
+      <div class="article"><h1 class="${b.title.length > 90 ? "long" : ""}">${C.esc(b.title)}</h1><div class="meta">${C.chip(bl)}<span class="prob">${C.pct(b.prob)}</span></div>${C.highlight(b.body, b.keywords, "body", bl)}</div>`;
     C.bindKeywords(panel.querySelector(".article"), b, bl);
     panel.querySelector(".x").onclick = closeSplit;
     if (pend) {
@@ -76,6 +75,7 @@
     }
     renderMain(true);
     window.scrollTo(0, 0);
+    if (push) logView(bid);
     if (push) history.pushState({ b: bid }, "", `${location.pathname}?${new URLSearchParams({ ...(uid ? { user_id: uid } : {}), compare: bid })}`);
   }
 
@@ -84,7 +84,7 @@
     panel.hidden = true;
     panel.innerHTML = "";
     side.hidden = false;
-    document.title = `CRYSTAL · ${settings.goals.article}`;
+    document.title = "CRYSTAL";
     document.getElementById("goal").textContent = settings.goals.article;
     renderMain(false);
     history.pushState({}, "", `${location.pathname}${userQ}`);
@@ -95,7 +95,13 @@
     if (b) openSplit(b, false); else closeSplit();
   });
 
-  document.title = `CRYSTAL · ${settings.goals.article}`;
+  function logView(id) {
+    const u = uid || settings.default_user;
+    if (u) C.post("/api/log-click", { user_id: u, article_id: id }).catch(() => {});
+  }
+  logView(aid);
+
+  document.title = "CRYSTAL";
   document.getElementById("goal").textContent = settings.goals.article;
   document.getElementById("goal").hidden = !settings.show_level_caption;
   renderMain(false);

@@ -91,14 +91,10 @@ def build_verdict_prompt(a, articles):
                          phrases=phrases, evidence=evidence_text(a, articles), label_word=label_word(a["final_label"]))
 
 
-def level_word(pred_prob_fake):
-    return ("True", "Likely True", "Uncertain", "Likely Fake", "Fake")[min(4, int(pred_prob_fake * 5))]
-
-
 def build_contrast_prompt(a, b):
     version, tpl = load_prompt("contrast")
-    return version, fill(tpl, a_verdict=level_word(a["pred_prob_fake"]), a_title=a["title"], a_body=opening(a),
-                         b_verdict=level_word(b["pred_prob_fake"]), b_title=b["title"], b_body=opening(b))
+    return version, fill(tpl, a_verdict=label_word(a["final_label"]).upper(), a_title=a["title"], a_body=opening(a),
+                         b_verdict=label_word(b["final_label"]).upper(), b_title=b["title"], b_body=opening(b))
 
 
 _SUBJ = r"\b(?:article|story|claim|report|piece|headline|news)\b[^.;]{0,60}?\b(?:is|was|are|appears|seems|has been|proves|confirmed|verified|labeled|labelled|deemed|considered)\b[^.;]{0,25}?\b"

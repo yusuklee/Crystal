@@ -1,5 +1,5 @@
-"""본 매칭: is_displayable 기사마다 코사인 ≥ threshold인 displayable 기사를 진위 무관하게 모아 5단계(pred_prob_fake 0.2 간격)마다 상위 PER_LEVEL개씩 counterparts에 둔다 (--pool all).
-2026-10-21: 반대 진위만 → 전 진위 5단계(PRISM Explore Related Articles 방식)."""
+"""본 매칭: is_displayable 기사마다 같은 HDBSCAN 군집(--method cluster)이면서 코사인 ≥ threshold인, final_label이 반대인 displayable 기사를 유사도 상위 TOP_K개 counterparts에 둔다 (--pool all).
+2026-10-30: 전 진위 5단계 → 반대 진위 2건 (회의 결정)."""
 import argparse
 import json
 import os
@@ -19,9 +19,7 @@ ARTICLES = os.path.join(DATA, "articles.jsonl")
 EMB = os.path.join(DATA, "event", "embeddings.npy")
 FEEDS = os.path.join(DATA, "feeds.jsonl")
 SEED_USERS = ("866694567411798017", "128578213", "145250021")
-PER_LEVEL = 2
-N_LEVELS = 5
-TOP_K = PER_LEVEL * N_LEVELS
+TOP_K = 2
 BOILERPLATE_IDS = os.path.join(DATA, "event", "boilerplate_ids.txt")
 
 
@@ -48,7 +46,6 @@ def match(arts, pool, method, threshold):
     emb = load_embeddings(ids)
     fl = np.array([int(a["final_label"]) for a in arts])
     pf = np.array([float(a["pred_prob_fake"]) for a in arts])
-    lv = np.minimum(4, (pf * N_LEVELS).astype(int))
     bp = np.array([is_boilerplate(a["body"]) for a in arts])
     with open(BOILERPLATE_IDS, "w", encoding="utf-8") as f:
         f.write(chr(10).join(ids[i] for i in np.where(bp)[0]))
@@ -65,13 +62,13 @@ def match(arts, pool, method, threshold):
     S = emb[q_idx] @ emb[p_idx].T
     for r, qi in enumerate(q_idx):
         s = S[r]
-        ok = (np.round(s, 4) < 1.0) & (p_idx != qi) & (not bp[qi])  # 반올림 뒤에도 sim < 1 (같은 글 복제본 제외)
+        ok = (fl[p_idx] != fl[qi]) & (np.round(s, 4) < 1.0) & (p_idx != qi) & (not bp[qi])  # 반대 진위, 반올림 뒤에도 sim < 1 (같은 글 복제본 제외)
         ok &= (event[p_idx] == event[qi]) & (event[qi] != -1) & (s >= threshold) if method == "cluster" else (s >= threshold)
-        cand, seen, keep, per = np.where(ok)[0], {norm_title(arts[qi]["title"])}, [], [0] * N_LEVELS
-        for c in cand[np.argsort(-s[cand])]:  # 같은 제목(정규화)의 중복 기사는 sim 높은 하나만, 단계마다 PER_LEVEL개
-            nt, l = norm_title(arts[p_idx[c]]["title"]), lv[p_idx[c]]
-            if nt not in seen and per[l] < PER_LEVEL:
-                seen.add(nt); per[l] += 1; keep.append(c)
+        cand, seen, keep = np.where(ok)[0], {norm_title(arts[qi]["title"])}, []
+        for c in cand[np.argsort(-s[cand])]:  # 같은 제목(정규화)의 중복 기사는 sim 높은 하나만
+            nt = norm_title(arts[p_idx[c]]["title"])
+            if nt not in seen:
+                seen.add(nt); keep.append(c)
             if len(keep) == TOP_K:
                 break
         cand = keep

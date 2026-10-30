@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from . import data as D
 
 STATIC = os.path.join(D.HERE, "static")
-SETTINGS = {"show_feed_labels": os.environ.get("CRYSTAL_SHOW_FEED_LABELS", "1") != "0",
+SETTINGS = {"show_feed_labels": os.environ.get("CRYSTAL_SHOW_FEED_LABELS", "0") != "0",
             "show_level_caption": os.environ.get("CRYSTAL_SHOW_LEVEL_CAPTION", "0") != "0", "page_size": 12}
 GOALS = {"feed": "지금 받은 피드와 지난 소비의 진위 분포를 사용자가 인식하게 한다.",
          "article": "이 기사가 왜 가짜/진짜로 판정됐는지 근거(판정에 가장 기여한 구문과 설명)를 보여 준다.",
@@ -137,6 +137,21 @@ class ClickReq(BaseModel):
 @app.post("/api/log-click")
 def log_click(req: ClickReq):
     store.log_click(req.user_id, req.article_id)
+    return {"ok": True}
+
+
+@app.get("/api/demo-users")
+def demo_users():
+    return {"users": store.demo_users(), "default_user": store.default_user()}
+
+
+class ResetReq(BaseModel):
+    user_id: str
+
+
+@app.post("/api/reset-user")
+def reset_user(req: ResetReq):
+    store.reset_user(req.user_id)
     return {"ok": True}
 
 
